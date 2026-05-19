@@ -183,7 +183,7 @@ build_package() {
     local makepkglist=""
 
     search="$(basename "${SCRIPT_DIR}")"
-    destiny="${HOME}/EDU/nemesis_repo/x86_64/"
+    destiny="${HOME}/KIRO/kiro_repo/x86_64/"
     CHROOT="${HOME}/Documents/chroot-archlinux"
     CHOICE=1
 
