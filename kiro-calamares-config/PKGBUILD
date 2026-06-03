@@ -3,9 +3,8 @@ pkgname=kiro-calamares-config
 _pkgname=kiro-calamares-config
 _destname1="/etc"
 _destname2="/usr"
-_destnamescript="/usr/bin"
-pkgver=26.05
-pkgrel=09
+pkgver=26.06
+pkgrel=02
 pkgdesc="calamares config for kiro"
 arch=('any')
 url="https://github.com/kirodubes/${_pkgname}"
@@ -23,6 +22,4 @@ package() {
 	cp -r "${srcdir}/${_pkgname}/${_destname1}"* "${pkgdir}"
 	mkdir -p "${pkgdir}${_destname2}"
 	cp -r "${srcdir}/${_pkgname}/${_destname2}"* "${pkgdir}"
-	mkdir -p "${pkgdir}${_destnamescript}"
-	cp -r "${srcdir}/${_pkgname}/etc/calamares/pkgbuild/build-calamares" "${pkgdir}${_destnamescript}"
 }
