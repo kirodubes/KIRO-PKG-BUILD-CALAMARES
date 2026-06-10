@@ -1,0 +1,19 @@
+#!/bin/bash
+# Calamares is an X11/xcb app. Under some Wayland sessions a root (pkexec)
+# process cannot reach the user's XWayland display. GNOME (mutter) and Plasma
+# (kwin) set this up for root; minimal compositors like labwc (Budgie) do not.
+# Probe whether root can already reach the display and grant access only then,
+# so GNOME/Plasma/X11 keep the original path. The grant is additive + revoked,
+# so it cannot regress a session where root already had access.
+if [ $(which pkexec) ]; then
+	if [ -n "$DISPLAY" ] && command -v xhost >/dev/null 2>&1 \
+	   && ! sudo -n env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" xhost >/dev/null 2>&1; then
+		xhost +SI:localuser:root >/dev/null 2>&1
+		trap 'xhost -SI:localuser:root >/dev/null 2>&1' EXIT
+		pkexec --disable-internal-agent env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" "/usr/bin/calamares" "$@"
+	else
+		pkexec --disable-internal-agent "/usr/bin/calamares" "$@"
+	fi
+else
+	/usr/bin/calamares "$@"
+fi

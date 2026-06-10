@@ -159,6 +159,19 @@ bump_version() {
   pkgrel: ${old_pkgrel} → ${new_pkgrel}"
 }
 
+create_current_version() {
+    local pkgbuild="${SCRIPT_DIR}/PKGBUILD"
+    local pkgver pkgrel epoch
+    pkgver=$(grep -m1 "pkgver" "${pkgbuild}" | cut -d= -f2)
+    pkgrel=$(grep -m1 "pkgrel" "${pkgbuild}" | cut -d= -f2)
+    epoch=$(grep -m1 "epoch"  "${pkgbuild}" | cut -d= -f2 || true)
+    {
+        echo "pkgver=${pkgver}"
+        echo "pkgrel=${pkgrel}"
+        echo "epoch=${epoch}"
+    } > "${SCRIPT_DIR}/.current-version"
+}
+
 publish_repo() {
     if [[ -x "${REPO_UP}" ]]; then
         log_section "Publishing kiro_repo"
@@ -195,6 +208,7 @@ build_package() {
 
     # Built in /tmp/tempbuild (wiped at the next run's start), so the source
     # dir never collects artifacts — nothing to clean up here.
+    cp "${SCRIPT_DIR}/.current-version" "${SCRIPT_DIR}/.previous-version"
     log_success "Build done for ${search}"
 }
 
@@ -204,6 +218,7 @@ build_package() {
 main() {
     git_pull_if_repo
     bump_version
+    create_current_version
     build_package
 
     log_success "$(basename "$0") done"

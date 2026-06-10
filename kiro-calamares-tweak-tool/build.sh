@@ -2,42 +2,14 @@
 set -euo pipefail
 #####################################################################
 # Author    : Erik Dubois
-# Website   : https://kiroproject.be
+# Website   : https://www.erikdubois.be
 #####################################################################
 #
 #   DO NOT JUST RUN THIS. EXAMINE AND JUDGE. RUN AT YOUR OWN RISK.
 #
-#   Purpose:
-#   Build the Arch package described by the PKGBUILD in THIS directory
-#   and ship it to the local kiro_repo, then publish kiro_repo.
-#     1. git pull           - if this dir is itself a git repo
-#     2. bump_version       - date-versioned pkgs (YY.MM) get a pkgrel
-#                             bump; upstream-versioned pkgs (calamares)
-#                             build their current pkgrel as-is
-#     3. build              - makepkg -s in /tmp/tempbuild (clean tree)
-#     4. copy               - the built .pkg.tar.zst into kiro_repo/x86_64
-#     5. publish            - run kiro_repo/up.sh to push the repo remote
-#
-#   Why: one self-contained command per package dir. The flow-calamares /
-#   flow-calamares-next wrappers add the "new numbered dir + pkgrel+1"
-#   step on top of this — they do NOT publish, this script does.
-#
-#   Build method: makepkg (USE_CHROOT="no"). A clean chroot build failed
-#   for calamares because makechrootpkg's chroot lacks the custom repos
-#   (chaotic-aur / cachyos / kiro_repo) that the package's deps need.
-#   Set USE_CHROOT="yes" only after adding those repos to the chroot's
-#   pacman.conf — makepkg works because it uses the host's repos.
 #####################################################################
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-
-#####################################################################
-# Config
-#####################################################################
-USE_CHROOT="no"                                 # "yes" = makechrootpkg, "no" = makepkg
-DESTINY="${HOME}/KIRO/kiro_repo/x86_64"         # local pacman repo package dir
-REPO_UP="${HOME}/KIRO/kiro_repo/up.sh"          # publishes kiro_repo to its remote
-CHROOT="${HOME}/Documents/chroot-archlinux"     # only used when USE_CHROOT="yes"
 
 #####################################################################
 # Colors
@@ -129,15 +101,11 @@ bump_version() {
     old_pkgver=$(grep -E '^pkgver=' "${pkgbuild}" | cut -d= -f2)
     old_pkgrel=$(grep -E '^pkgrel=' "${pkgbuild}" | cut -d= -f2)
 
-    # Upstream-versioned packages (e.g. calamares, pkgver=3.4.2.r4.g...) are
-    # not date-bumped here — the flow-* wrappers bump pkgrel by creating the
-    # next numbered build dir. Build the current pkgrel as-is.
     if [[ ! "${old_pkgver}" =~ ^[0-9]{2}\.[0-9]{2}$ ]]; then
-        log_info "Upstream-versioned package (pkgver=${old_pkgver}) — building pkgrel=${old_pkgrel} as-is"
+        log_info "Upstream-versioned package (pkgver=${old_pkgver}) — skipping bump"
         return 0
     fi
 
-    # A source URL that embeds the version cannot be auto-bumped safely.
     local source_line
     source_line=$(grep -E '^\s*source=' "${pkgbuild}" || true)
     if echo "${source_line}" | grep -qE '\$\{?pkgver\}?|\$\{?pkgrel\}?'; then
@@ -146,64 +114,139 @@ bump_version() {
     fi
 
     new_pkgver=$(date +%y.%m)
+
     if [[ "${new_pkgver}" != "${old_pkgver}" ]]; then
-        new_pkgrel="01"                          # new month resets pkgrel
+        new_pkgrel="01"
     else
         new_pkgrel=$(printf '%02d' $((10#${old_pkgrel} + 1)))
     fi
 
     sed -i "s/^pkgver=.*/pkgver=${new_pkgver}/" "${pkgbuild}"
     sed -i "s/^pkgrel=.*/pkgrel=${new_pkgrel}/" "${pkgbuild}"
+
     log_info "Updated '${pkgname}':
   pkgver: ${old_pkgver} → ${new_pkgver}
   pkgrel: ${old_pkgrel} → ${new_pkgrel}"
 }
 
-publish_repo() {
-    if [[ -x "${REPO_UP}" ]]; then
-        log_section "Publishing kiro_repo"
-        bash "${REPO_UP}" || log_warn "kiro_repo up.sh failed — push manually"
+create_current_version() {
+    local pkgbuild="${SCRIPT_DIR}/PKGBUILD"
+    local pkgver pkgrel epoch
+    pkgver=$(grep -m1 "pkgver" "${pkgbuild}" | cut -d= -f2)
+    pkgrel=$(grep -m1 "pkgrel" "${pkgbuild}" | cut -d= -f2)
+    epoch=$(grep -m1 "epoch"  "${pkgbuild}" | cut -d= -f2 || true)
+    {
+        echo "pkgver=${pkgver}"
+        echo "pkgrel=${pkgrel}"
+        echo "epoch=${epoch}"
+    } > "${SCRIPT_DIR}/.current-version"
+}
+
+check_version() {
+    local pkgbuild="${SCRIPT_DIR}/PKGBUILD"
+    local prev="${SCRIPT_DIR}/.previous-version"
+    local pkgname pkgver pkgrel epoch
+    local oldpkgver="" oldpkgrel="" oldepoch=""
+
+    pkgname=$(grep -E '^pkgname=' "${pkgbuild}" | cut -d= -f2)
+    pkgver=$(grep -m1 "pkgver" "${pkgbuild}" | cut -d= -f2)
+    pkgrel=$(grep -m1 "pkgrel" "${pkgbuild}" | cut -d= -f2)
+    epoch=$(grep -m1 "epoch"  "${pkgbuild}" | cut -d= -f2 || true)
+
+    if [[ -f "${prev}" ]]; then
+        oldpkgver=$(grep -m1 "pkgver" "${prev}" | cut -d= -f2 || true)
+        oldpkgrel=$(grep -m1 "pkgrel" "${prev}" | cut -d= -f2 || true)
+        oldepoch=$(grep -m1  "epoch"  "${prev}" | cut -d= -f2 || true)
+    fi
+
+    log_info "$(printf 'Previous: pkgver=%s pkgrel=%s epoch=%s\nNew:      pkgver=%s pkgrel=%s epoch=%s\nPackage:  %s' \
+        "${oldpkgver}" "${oldpkgrel}" "${oldepoch}" \
+        "${pkgver}"    "${pkgrel}"    "${epoch}" \
+        "${pkgname}")"
+
+    {
+        echo "pkgver=${pkgver}"
+        echo "pkgrel=${pkgrel}"
+        echo "epoch=${epoch}"
+    } > "${SCRIPT_DIR}/.current-version"
+
+    if [[ "${pkgver}" != "${oldpkgver}" || "${pkgrel}" != "${oldpkgrel}" || "${epoch}" != "${oldepoch}" ]]; then
+        BUILD_NEEDED="true"
     else
-        log_warn "kiro_repo up.sh not found at ${REPO_UP} — skipping publish"
+        BUILD_NEEDED="false"
     fi
 }
 
 build_package() {
-    local search
+    local pkgbuild="${SCRIPT_DIR}/PKGBUILD"
+    local search destiny CHROOT CHOICE
+    local makepkglist=""
+
     search="$(basename "${SCRIPT_DIR}")"
+    destiny="${HOME}/KIRO/kiro_repo/x86_64/"
+    CHROOT="${HOME}/Documents/chroot-archlinux"
+    CHOICE=1
+
+    for i in ${makepkglist}; do
+        [[ "${search}" == "${i}" ]] && CHOICE=2
+    done
 
     [[ -d /tmp/tempbuild ]] && rm -rf /tmp/tempbuild
     mkdir /tmp/tempbuild
     cp -r "${SCRIPT_DIR}/"* /tmp/tempbuild/
 
-    if [[ "${USE_CHROOT}" == "yes" ]]; then
+    local success="false"
+
+    if [[ "${CHOICE}" == "1" ]]; then
         log_section "Building ${search} in CHROOT ${CHROOT}"
         arch-nspawn "${CHROOT}/root" pacman -Syu --noconfirm
-        ( cd /tmp/tempbuild && makechrootpkg -c -r "${CHROOT}" )
+        if (cd /tmp/tempbuild && makechrootpkg -c -r "${CHROOT}"); then
+            success="true"
+        fi
     else
-        log_section "Building ${search} with makepkg"
-        ( cd /tmp/tempbuild && makepkg -s )
+        log_section "Building ${search} with MAKEPKG"
+        if (cd /tmp/tempbuild && makepkg -s); then
+            success="true"
+        fi
     fi
 
-    log_section "Copying package to ${DESTINY}"
-    mkdir -p "${DESTINY}"
-    # The dir is named pkgname-pkgver-pkgrel, so it matches the output filename.
-    cp -nv /tmp/tempbuild/*"${search}"*pkg.tar.zst "${DESTINY}/" || \
-        log_warn "${search} already present in ${DESTINY} — not overwritten"
+    if [[ "${success}" == "true" ]]; then
+        log_section "Copying packages to ${destiny}"
+        cp -nv /tmp/tempbuild/*"${search}"*pkg.tar.zst "${destiny}" || \
+            log_warn "${search} already exists in destination — skipping copy"
 
-    publish_repo
+        local file_count
+        file_count=$(find "${destiny}" -maxdepth 1 -name "${search}*" -print | wc -l)
+        if [[ "${file_count}" -gt 2 ]]; then
+            printf "%s\n" "${search}" | tee -a /tmp/installed
+            find "${destiny}" -maxdepth 1 -name "${search}*" -exec basename {} \; | tee -a /tmp/installed
+        fi
+    fi
 
-    # Built in /tmp/tempbuild (wiped at the next run's start), so the source
-    # dir never collects artifacts — nothing to clean up here.
+    log_section "Cleaning up"
+    find "${SCRIPT_DIR}" -maxdepth 1 \( -name "*.log" -o -name "*.deb" -o -name "*.tar.gz" \) -delete
+
+    cp "${SCRIPT_DIR}/.current-version" "${SCRIPT_DIR}/.previous-version"
+
     log_success "Build done for ${search}"
 }
 
 #####################################################################
 # Main
 #####################################################################
+BUILD_NEEDED="false"
+
 main() {
     git_pull_if_repo
     bump_version
+    create_current_version
+    check_version
+
+    if [[ "${BUILD_NEEDED}" == "false" ]]; then
+        log_warn "No version change detected — skipping build"
+        exit 0
+    fi
+
     build_package
 
     log_success "$(basename "$0") done"

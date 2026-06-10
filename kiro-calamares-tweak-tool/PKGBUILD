@@ -1,15 +1,15 @@
 # Maintainer: Erik Dubois <erik.dubois@gmail.com>
-pkgname=kiro-calamares-tweak-tool-nemesis
-_pkgname=kiro-calamares-tweak-tool-nemesis
+pkgname=kiro-calamares-tweak-tool
+_pkgname=kiro-calamares-tweak-tool
 _destname1="/usr"
 _licensedir="/usr/share/kiro/licenses/"
 pkgver=26.06
-pkgrel=26
+pkgrel=25
 pkgdesc="Dev/expert tool to set Calamares encryption + bootloader before installing (PySide6/QML)"
 arch=('any')
 url="https://github.com/kirodubes/${_pkgname}"
 license=('GPL3')
-conflicts=("kiro-calamares-tweak-tool")
+conflicts=("kiro-calamares-tweak-tool-nemesis")
 makedepends=('git')
 depends=('pyside6' 'polkit')
 optdepends=('libnotify: desktop notification when settings are applied')

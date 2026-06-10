@@ -1,2 +1,11 @@
 .codex/
 .claude/
+
+# makepkg/updpkgsums clone the upstream source into a "calamares" mirror inside
+# build dirs (~91MB). Never commit/push it (or any build artifacts) to GitHub.
+calamares/
+src/
+pkg/
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
+*.log

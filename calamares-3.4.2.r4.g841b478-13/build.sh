@@ -159,6 +159,21 @@ bump_version() {
   pkgrel: ${old_pkgrel} → ${new_pkgrel}"
 }
 
+update_checksums() {
+    # Regenerate sha256sums so an edited local source file (e.g. cal-kiro.desktop)
+    # can't fail makepkg's validity check. The git source stays SKIP.
+    if ! command -v updpkgsums >/dev/null 2>&1; then
+        log_warn "updpkgsums not found (install pacman-contrib) — skipping checksum refresh"
+        return 0
+    fi
+    log_section "Refreshing source checksums with updpkgsums"
+    ( cd "${SCRIPT_DIR}" && updpkgsums )
+    # updpkgsums clones the git source into this dir to hash it — don't keep that
+    # ~91MB mirror (makepkg re-clones into /tmp/tempbuild at build time, and it
+    # must never be committed/pushed to GitHub).
+    rm -rf "${SCRIPT_DIR}/calamares"
+}
+
 publish_repo() {
     if [[ -x "${REPO_UP}" ]]; then
         log_section "Publishing kiro_repo"
@@ -182,14 +197,20 @@ build_package() {
         ( cd /tmp/tempbuild && makechrootpkg -c -r "${CHROOT}" )
     else
         log_section "Building ${search} with makepkg"
-        ( cd /tmp/tempbuild && makepkg -s )
+        ( cd /tmp/tempbuild && makepkg -s --noconfirm )
     fi
 
     log_section "Copying package to ${DESTINY}"
     mkdir -p "${DESTINY}"
-    # The dir is named pkgname-pkgver-pkgrel, so it matches the output filename.
-    cp -nv /tmp/tempbuild/*"${search}"*pkg.tar.zst "${DESTINY}/" || \
-        log_warn "${search} already present in ${DESTINY} — not overwritten"
+    # Copy whatever makepkg actually produced — its filename embeds the dynamic
+    # pkgver() output, which need not match this folder's name. Skip debug pkgs.
+    local built
+    mapfile -t built < <(find /tmp/tempbuild -maxdepth 1 -name '*.pkg.tar.zst' ! -name '*-debug-*')
+    if [[ ${#built[@]} -eq 0 ]]; then
+        log_error "No package produced in /tmp/tempbuild"
+        exit 1
+    fi
+    cp -v "${built[@]}" "${DESTINY}/"
 
     publish_repo
 
@@ -204,6 +225,7 @@ build_package() {
 main() {
     git_pull_if_repo
     bump_version
+    update_checksums
     build_package
 
     log_success "$(basename "$0") done"
